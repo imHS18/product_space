@@ -230,13 +230,20 @@ class SentimentAnalyzer(BaseTool):
     
     def _calculate_overall_sentiment(self, vader_scores: Dict, textblob_sentiment: float, emotions: Dict) -> float:
         """Calculate overall sentiment score"""
-        # Weight VADER more heavily as it's more reliable for social media/customer service text
-        vader_weight = 0.6
-        textblob_weight = 0.3
-        emotion_weight = 0.1
-        
         vader_score = vader_scores['compound']
         textblob_score = textblob_sentiment
+        
+        # For extreme cases (very negative or very positive), weight VADER more heavily
+        if abs(vader_score) > 0.8:
+            # For extreme sentiment, give VADER 80% weight
+            vader_weight = 0.8
+            textblob_weight = 0.15
+            emotion_weight = 0.05
+        else:
+            # Normal weighting
+            vader_weight = 0.6
+            textblob_weight = 0.3
+            emotion_weight = 0.1
         
         # Emotion adjustment
         emotion_score = 0.0

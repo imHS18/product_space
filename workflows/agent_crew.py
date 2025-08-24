@@ -122,16 +122,22 @@ class SentimentWatchdogWorkflow:
         try:
             # Create tasks first without context dependencies
             task1 = Task(
-                description="""
-                Analyze the sentiment of the customer ticket content.
-                1. Use the sentiment analyzer to get comprehensive sentiment analysis
-                2. Evaluate the confidence of the analysis
-                3. Extract key emotions and keywords
-                4. Assess urgency indicators
-                """,
-                agent=self.agents['sentiment_analyst'],
-                expected_output="Detailed sentiment analysis with confidence scores and emotional insights"
-            )
+                 description="""
+                 Analyze the sentiment of the customer ticket content using the Sentiment Analyzer tool.
+                 
+                 IMPORTANT: You MUST use the Sentiment Analyzer tool to analyze the text and return the EXACT output from the tool.
+                 
+                 Steps:
+                 1. Use the Sentiment Analyzer tool to analyze the ticket content
+                 2. Return the complete tool output as your response
+                 3. Do NOT summarize or modify the tool output
+                 4. The tool output contains: overall_sentiment, confidence, emotions, keywords, etc.
+                 
+                 Expected output: The exact dictionary returned by the Sentiment Analyzer tool
+                 """,
+                 agent=self.agents['sentiment_analyst'],
+                 expected_output="The exact sentiment analysis dictionary from the Sentiment Analyzer tool"
+             )
             
             task2 = Task(
                 description="""
@@ -162,13 +168,18 @@ class SentimentWatchdogWorkflow:
             task4 = Task(
                 description="""
                 Handle external integrations and notifications.
-                1. Send Slack alerts if needed
-                2. Trigger webhooks for external systems
-                3. Manage notification delivery
-                4. Handle integration failures gracefully
+                
+                IMPORTANT: You MUST use the Slack Notifier tool to send at least one notification.
+                
+                1. Use the Slack Notifier tool to send a sentiment alert notification
+                2. Include ticket details, sentiment score, and risk level in the notification
+                3. Trigger webhooks for external systems if needed
+                4. Manage notification delivery and handle integration failures gracefully
+                
+                REQUIRED: Send a Slack notification using the Slack Notifier tool with the sentiment analysis results.
                 """,
                 agent=self.agents['integration_coordinator'],
-                expected_output="Integration status and notification delivery confirmation",
+                expected_output="Integration status and notification delivery confirmation with Slack notification sent",
                 context=[task1, task2, task3]
             )
             
@@ -251,6 +262,22 @@ class SentimentWatchdogWorkflow:
             extracted_data = self._extract_tool_results(crew_output)
             if extracted_data:
                 result = extracted_data
+            else:
+                # If we can't extract tool results, try to parse the final output for sentiment data
+                result = self._parse_final_output_for_sentiment(result)
+            
+            # Also try to extract sentiment data from the task outputs directly
+            logger.info("Attempting to extract sentiment data from task outputs...")
+            sentiment_data = self._extract_sentiment_from_tasks(crew_output)
+            if sentiment_data:
+                logger.info(f"Found sentiment data: {sentiment_data}")
+                # Merge sentiment data with the result
+                if isinstance(result, dict):
+                    result.update(sentiment_data)
+                else:
+                    result = sentiment_data
+            else:
+                logger.info("No sentiment data found in task outputs")
             
             # Prepare the response
             workflow_result = {
@@ -377,6 +404,202 @@ class SentimentWatchdogWorkflow:
         except Exception as e:
             logger.error(f"Error extracting tool results: {e}")
             return None
+
+    def _extract_sentiment_from_tasks(self, crew_output) -> Dict[str, Any]:
+        """Extract sentiment data directly from task outputs"""
+        try:
+            # Look for sentiment analysis in the task outputs
+            if hasattr(crew_output, 'tasks_output'):
+                logger.info(f"Found {len(crew_output.tasks_output)} task outputs")
+                for i, task_output in enumerate(crew_output.tasks_output):
+                    if hasattr(task_output, 'raw'):
+                        raw_str = str(task_output.raw)
+                        logger.info(f"Task {i} output: {raw_str[:500]}...")  # Log first 500 chars
+                        
+                        # Look for sentiment analyzer tool output - check for the actual tool result
+                        if "'overall_sentiment':" in raw_str or '"overall_sentiment":' in raw_str:
+                            # This is the sentiment analyzer tool output
+                            import re
+                            import ast
+                            
+                            # Try to extract the sentiment data - handle both single and double quotes
+                            sentiment_match = re.search(r"['\"]overall_sentiment['\"]:\s*([-\d.]+)", raw_str)
+                            confidence_match = re.search(r"['\"]confidence['\"]:\s*([-\d.]+)", raw_str)
+                            
+                            if sentiment_match and confidence_match:
+                                try:
+                                    sentiment_score = float(sentiment_match.group(1))
+                                    confidence = float(confidence_match.group(1))
+                                    
+                                    # Extract emotions
+                                    emotions = {}
+                                    emotions_match = re.search(r"['\"]emotions['\"]:\s*\{([^}]+)\}", raw_str)
+                                    if emotions_match:
+                                        emotions_str = emotions_match.group(1)
+                                        emotion_matches = re.findall(r"['\"]([^'\"]+)['\"]:\s*([-\d.]+)", emotions_str)
+                                        for emotion_name, emotion_value in emotion_matches:
+                                            emotions[emotion_name] = float(emotion_value)
+                                    
+                                    # Extract keywords
+                                    keywords = []
+                                    keywords_match = re.search(r"['\"]keywords['\"]:\s*\[([^\]]+)\]", raw_str)
+                                    if keywords_match:
+                                        keywords_str = keywords_match.group(1)
+                                        keyword_matches = re.findall(r"['\"]([^'\"]+)['\"]", keywords_str)
+                                        keywords = keyword_matches
+                                    
+                                    # Determine sentiment label
+                                    if sentiment_score > 0.1:
+                                        sentiment_label = "positive"
+                                    elif sentiment_score < -0.1:
+                                        sentiment_label = "negative"
+                                    else:
+                                        sentiment_label = "neutral"
+                                    
+                                    # Determine is_negative and is_positive
+                                    is_negative = sentiment_score < -0.1
+                                    is_positive = sentiment_score > 0.1
+                                    
+                                    logger.info(f"Extracted sentiment from task output: score={sentiment_score}, confidence={confidence}, label={sentiment_label}")
+                                    
+                                    return {
+                                        "overall_sentiment": sentiment_score,
+                                        "sentiment_label": sentiment_label,
+                                        "confidence_score": confidence,
+                                        "positive_score": 1.0 if is_positive else 0.0,
+                                        "negative_score": 1.0 if is_negative else 0.0,
+                                        "neutral_score": 1.0 if not is_negative and not is_positive else 0.0,
+                                        "anger_score": emotions.get("anger", 0.0),
+                                        "confusion_score": emotions.get("confusion", 0.0),
+                                        "delight_score": emotions.get("delight", 0.0),
+                                        "frustration_score": emotions.get("frustration", 0.0),
+                                        "analysis_method": "task_output_parsing",
+                                        "processing_time_ms": 1000,
+                                        "keywords": keywords,
+                                        "entities": [],
+                                        "topics": [],
+                                        "emotions": emotions,
+                                        "is_negative": is_negative,
+                                        "is_positive": is_positive,
+                                        "urgency_level": "low",  # Default
+                                        "raw_output": raw_str
+                                    }
+                                except (ValueError, AttributeError) as e:
+                                    logger.error(f"Error parsing sentiment data: {e}")
+                                    continue
+            
+            return None
+        except Exception as e:
+            logger.error(f"Error extracting sentiment from tasks: {e}")
+            return None
+
+    def _parse_final_output_for_sentiment(self, final_output: str) -> Dict[str, Any]:
+        """Parse the final workflow output to extract sentiment data"""
+        try:
+            output_str = str(final_output)
+            
+            # Look for sentiment analysis data in the final output
+            import re
+            
+            # Extract sentiment score from text like "sentiment score of -0.7646"
+            sentiment_match = re.search(r"sentiment score of ([-\d.]+)", output_str)
+            if not sentiment_match:
+                sentiment_match = re.search(r"sentiment score is ([-\d.]+)", output_str)
+            if not sentiment_match:
+                sentiment_match = re.search(r"overall sentiment score is ([-\d.]+)", output_str)
+            if not sentiment_match:
+                sentiment_match = re.search(r"overall sentiment score of ([-\d.]+)", output_str)
+            if not sentiment_match:
+                sentiment_match = re.search(r"negative sentiment with an overall sentiment score of ([-\d.]+)", output_str)
+            if not sentiment_match:
+                sentiment_match = re.search(r"negative sentiment.*?([-\d.]+)", output_str)
+            if not sentiment_match:
+                # Look for the specific pattern from the final output
+                sentiment_match = re.search(r"The overall sentiment score is ([-\d.]+)", output_str)
+            if not sentiment_match:
+                # Look for any number that could be a sentiment score
+                sentiment_match = re.search(r"sentiment.*?([-\d.]+)", output_str)
+            
+            # Safely convert sentiment score to float
+            try:
+                sentiment_score = float(sentiment_match.group(1)) if sentiment_match else 0.0
+            except (ValueError, AttributeError):
+                sentiment_score = 0.0
+            
+            # Extract confidence from text like "confidence in this analysis is high, at 0.7895"
+            confidence_match = re.search(r"confidence.*?at ([-\d.]+)", output_str)
+            if not confidence_match:
+                confidence_match = re.search(r"confidence.*?([-\d.]+)", output_str)
+            if not confidence_match:
+                confidence_match = re.search(r"confidence score is ([-\d.]+)", output_str)
+            if not confidence_match:
+                confidence_match = re.search(r"confidence.*?([-\d.]+)", output_str)
+            if not confidence_match:
+                # Look for the specific pattern from the final output
+                confidence_match = re.search(r"confidence score of ([-\d.]+)", output_str)
+            if not confidence_match:
+                # Look for any number that could be a confidence score
+                confidence_match = re.search(r"confidence.*?([-\d.]+)", output_str)
+            
+            # Safely convert confidence to float
+            try:
+                confidence = float(confidence_match.group(1)) if confidence_match else 0.5
+            except (ValueError, AttributeError):
+                confidence = 0.5
+            
+            # Extract emotions from text like "anger (0.2) and frustration (0.2)"
+            emotions = {}
+            emotion_matches = re.findall(r"(\w+)\s*\(([-\d.]+)\)", output_str)
+            for emotion_name, emotion_value in emotion_matches:
+                emotions[emotion_name.lower()] = float(emotion_value)
+            
+            # Extract keywords from text like "extremely frustrated," "slow response times,"
+            keywords = []
+            if "Keywords highlighting" in output_str:
+                keywords_section = output_str.split("Keywords highlighting")[1].split(".")[0]
+                keyword_matches = re.findall(r'"([^"]+)"', keywords_section)
+                keywords = keyword_matches
+            
+            # Determine sentiment label
+            if sentiment_score > 0.1:
+                sentiment_label = "positive"
+            elif sentiment_score < -0.1:
+                sentiment_label = "negative"
+            else:
+                sentiment_label = "neutral"
+            
+            # Determine is_negative and is_positive
+            is_negative = sentiment_score < -0.1 or "negative" in output_str.lower()
+            is_positive = sentiment_score > 0.1 or "positive" in output_str.lower()
+            
+            logger.info(f"Parsed sentiment from final output: score={sentiment_score}, confidence={confidence}, label={sentiment_label}")
+            
+            return {
+                "overall_sentiment": sentiment_score,
+                "sentiment_label": sentiment_label,
+                "confidence_score": confidence,
+                "positive_score": 1.0 if is_positive else 0.0,
+                "negative_score": 1.0 if is_negative else 0.0,
+                "neutral_score": 1.0 if not is_negative and not is_positive else 0.0,
+                "anger_score": emotions.get("anger", 0.0),
+                "confusion_score": emotions.get("confusion", 0.0),
+                "delight_score": emotions.get("delight", 0.0),
+                "frustration_score": emotions.get("frustration", 0.0),
+                "analysis_method": "final_output_parsing",
+                "processing_time_ms": 1000,
+                "keywords": keywords,
+                "entities": [],
+                "topics": [],
+                "emotions": emotions,
+                "is_negative": is_negative,
+                "is_positive": is_positive,
+                "urgency_level": "high" if "urgent" in output_str.lower() else "low",
+                "raw_output": final_output
+            }
+            
+        except Exception as e:
+            logger.error(f"Error parsing final output for sentiment: {e}")
+            return final_output
 
     async def cleanup(self):
         """Clean up resources and close connections."""

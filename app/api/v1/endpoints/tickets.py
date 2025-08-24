@@ -44,8 +44,11 @@ async def create_ticket(
         return {
             "success": True,
             "message": "Ticket processed successfully",
-            "ticket": saved_ticket,
-            "processing_metadata": result["processing_metadata"]
+            "ticket_id": saved_ticket.ticket_id if saved_ticket else ticket_data.ticket_id,
+            "sentiment_analysis": result.get("sentiment_analysis", {}),
+            "alerts": result.get("alerts", []),
+            "response_recommendations": result.get("response_recommendations", {}),
+            "processing_metadata": result.get("processing_metadata", {})
         }
         
     except Exception as e:

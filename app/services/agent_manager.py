@@ -115,7 +115,7 @@ class AgentManager:
                 'processed_at': datetime.now().isoformat()
             }
             
-            logger.info(f"✅ Ticket {ticket_data.ticket_id} processed in {processing_time:.2f}s")
+            logger.info(f"Ticket {ticket_data.ticket_id} processed in {processing_time:.2f}s")
             return result
             
         except Exception as e:
@@ -271,11 +271,22 @@ class AgentManager:
             logger.info(f"Extracted sentiment data: score={sentiment_score}, confidence={confidence}, label={sentiment_label}")
             
             return {
-                "sentiment_score": sentiment_score,
+                "overall_sentiment": sentiment_score,
                 "sentiment_label": sentiment_label,
-                "confidence": confidence,
-                "emotions": emotions,
+                "confidence_score": confidence,
+                "positive_score": 1.0 if is_positive else 0.0,
+                "negative_score": 1.0 if is_negative else 0.0,
+                "neutral_score": 1.0 if not is_negative and not is_positive else 0.0,
+                "anger_score": emotions.get("anger", 0.0),
+                "confusion_score": emotions.get("confusion", 0.0),
+                "delight_score": emotions.get("delight", 0.0),
+                "frustration_score": emotions.get("frustration", 0.0),
+                "analysis_method": "regex_parsing",
+                "processing_time_ms": 1000,  # Default processing time
                 "keywords": keywords,
+                "entities": [],
+                "topics": [],
+                "emotions": emotions,
                 "is_negative": is_negative,
                 "is_positive": is_positive,
                 "urgency_level": urgency_level,
@@ -285,11 +296,22 @@ class AgentManager:
             logger.error(f"Error extracting sentiment analysis: {e}")
             # Return a safe default
             return {
-                "sentiment_score": 0.0,
+                "overall_sentiment": 0.0,
                 "sentiment_label": "neutral",
-                "confidence": 0.5,
-                "emotions": {},
+                "confidence_score": 0.5,
+                "positive_score": 0.0,
+                "negative_score": 0.0,
+                "neutral_score": 1.0,
+                "anger_score": 0.0,
+                "confusion_score": 0.0,
+                "delight_score": 0.0,
+                "frustration_score": 0.0,
+                "analysis_method": "regex_parsing_fallback",
+                "processing_time_ms": 1000,
                 "keywords": [],
+                "entities": [],
+                "topics": [],
+                "emotions": {},
                 "is_negative": False,
                 "is_positive": False,
                 "urgency_level": "low",

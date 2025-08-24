@@ -31,11 +31,171 @@ class SlackNotifier(BaseTool):
         object.__setattr__(self, 'cooldown_period', timedelta(minutes=settings.SLACK_COOLDOWN_MINUTES))
         object.__setattr__(self, 'last_notification_time', None)
     
-    def _run(self, message: str, channel: str) -> str:
+    def _run(self, message: str, channel: str = "#customer-support-alerts") -> str:
         """Required method for CrewAI BaseTool - entry point for the tool"""
-        # In practice, you'd convert the strings back to proper types or handle JSON
-        # For now, returning a simple notification result
-        return f"Slack notification sent to {channel}: {message}"
+        print(f"🔔 SLACK NOTIFIER CALLED: message='{message}', channel='{channel}'")
+        print(f"🔔 Webhook URL configured: {bool(self.webhook_url)}")
+        
+        try:
+            # Parse the message to extract sentiment data
+            # Look for sentiment score in the message
+            import re
+            sentiment_score = 0.0
+            risk_level = "LOW"
+            customer_tier = "Standard"
+            
+            # Try to extract sentiment score from the message
+            sentiment_match = re.search(r"sentiment.*?([-\d.]+)", message.lower())
+            if sentiment_match:
+                try:
+                    sentiment_score = float(sentiment_match.group(1))
+                except:
+                    sentiment_score = 0.0
+            
+            # Determine risk level based on sentiment
+            if sentiment_score < -0.5:
+                risk_level = "HIGH"
+                color = "#FF0000"  # Red
+                emoji = "😠"
+            elif sentiment_score < -0.2:
+                risk_level = "MEDIUM"
+                color = "#FFA500"  # Orange
+                emoji = "😐"
+            else:
+                risk_level = "LOW"
+                color = "#00FF00"  # Green
+                emoji = "😊"
+            
+            # Create a rich formatted message like the image
+            test_message = {
+                "text": f"🚨 *Sentiment Alert*",
+                "attachments": [
+                    {
+                        "color": color,
+                        "blocks": [
+                            {
+                                "type": "header",
+                                "text": {
+                                    "type": "plain_text",
+                                    "text": f"🚨 Sentiment Alert - {channel}",
+                                    "emoji": True
+                                }
+                            },
+                            {
+                                "type": "section",
+                                "fields": [
+                                    {
+                                        "type": "mrkdwn",
+                                        "text": f"*Sentiment Score:*\n{emoji} {sentiment_score:.2f}"
+                                    },
+                                    {
+                                        "type": "mrkdwn",
+                                        "text": f"*Risk Level:*\n🔴 {risk_level}"
+                                    }
+                                ]
+                            },
+                            {
+                                "type": "section",
+                                "fields": [
+                                    {
+                                        "type": "mrkdwn",
+                                        "text": f"*Customer Tier:*\n👤 {customer_tier}"
+                                    },
+                                    {
+                                        "type": "mrkdwn",
+                                        "text": f"*Timestamp:*\n🕐 {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+                                    }
+                                ]
+                            },
+                            {
+                                "type": "section",
+                                "text": {
+                                    "type": "mrkdwn",
+                                    "text": f"*Alert Details:*\n{message}"
+                                }
+                            },
+                            {
+                                "type": "actions",
+                                "elements": [
+                                    {
+                                        "type": "button",
+                                        "text": {
+                                            "type": "plain_text",
+                                            "text": "Acknowledge",
+                                            "emoji": True
+                                        },
+                                        "style": "primary",
+                                        "action_id": "acknowledge_alert"
+                                    },
+                                    {
+                                        "type": "button",
+                                        "text": {
+                                            "type": "plain_text",
+                                            "text": "View Details",
+                                            "emoji": True
+                                        },
+                                        "action_id": "view_details"
+                                    }
+                                ]
+                            }
+                        ],
+                        "footer": "Sentiment Watchdog System",
+                        "ts": int(datetime.now().timestamp())
+                    }
+                ]
+            }
+            
+            print(f"🔔 About to send message: {test_message}")
+            
+            # Use the existing event loop if available, otherwise create a new one
+            try:
+                # Try to get the current event loop
+                loop = asyncio.get_running_loop()
+                print(f"🔔 Found running event loop, using ThreadPoolExecutor")
+                # If we're in an async context, we need to use a different approach
+                import concurrent.futures
+                with concurrent.futures.ThreadPoolExecutor() as executor:
+                    future = executor.submit(self._send_sync, test_message)
+                    result = future.result(timeout=10)
+            except RuntimeError:
+                print(f"🔔 No event loop running, creating new one")
+                # No event loop running, create a new one
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                try:
+                    result = loop.run_until_complete(self._send_to_slack(test_message))
+                finally:
+                    loop.close()
+            
+            print(f"🔔 Slack send result: {result}")
+            
+            if result["success"]:
+                print(f"✅ SLACK NOTIFICATION SENT SUCCESSFULLY!")
+                return f"✅ Slack notification sent successfully to {channel}: {message}"
+            else:
+                print(f"❌ SLACK NOTIFICATION FAILED: {result.get('error', 'Unknown error')}")
+                return f"❌ Slack notification failed: {result.get('error', 'Unknown error')}"
+                
+        except Exception as e:
+            print(f"❌ SLACK NOTIFIER ERROR: {e}")
+            logger.error(f"Error in Slack notifier _run: {e}")
+            return f"❌ Error sending Slack notification: {str(e)}"
+    
+    def _send_sync(self, message: Dict[str, Any]) -> Dict[str, Any]:
+        """Synchronous version of _send_to_slack for use in threads"""
+        import aiohttp
+        import asyncio
+        
+        async def _send():
+            return await self._send_to_slack(message)
+        
+        # Create a new event loop for this thread
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            return loop.run_until_complete(_send())
+        finally:
+            loop.close()
     
     async def send_notification(self, message_data: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -379,13 +539,18 @@ class SlackNotifier(BaseTool):
     
     async def _send_to_slack(self, message: Dict[str, Any]) -> Dict[str, Any]:
         """Send message to Slack webhook"""
+        print(f"🔔 _send_to_slack called with message: {message}")
+        print(f"🔔 Webhook URL: {self.webhook_url}")
+        
         try:
             if not self.webhook_url:
+                print(f"❌ No webhook URL configured!")
                 return {
                     "success": False,
                     "error": "Slack webhook URL not configured"
                 }
             
+            print(f"🔔 Sending HTTP POST to Slack webhook...")
             timeout = aiohttp.ClientTimeout(total=10)
             
             async with aiohttp.ClientSession(timeout=timeout) as session:
@@ -394,7 +559,14 @@ class SlackNotifier(BaseTool):
                     json=message,
                     headers={"Content-Type": "application/json"}
                 ) as response:
+                    print(f"🔔 HTTP Response Status: {response.status}")
+                    print(f"🔔 HTTP Response Headers: {dict(response.headers)}")
+                    
+                    response_text = await response.text()
+                    print(f"🔔 HTTP Response Body: {response_text}")
+                    
                     if response.status == 200:
+                        print(f"✅ HTTP 200 - Slack notification sent successfully!")
                         logger.info("Slack notification sent successfully")
                         return {
                             "success": True,
@@ -402,20 +574,23 @@ class SlackNotifier(BaseTool):
                             "message": "Notification sent successfully"
                         }
                     else:
+                        print(f"❌ HTTP {response.status} - Slack notification failed!")
                         logger.warning(f"Slack notification failed with status {response.status}")
                         return {
                             "success": False,
                             "status_code": response.status,
-                            "error": f"HTTP {response.status}"
+                            "error": f"HTTP {response.status}: {response_text}"
                         }
                         
         except asyncio.TimeoutError:
+            print(f"❌ Slack notification timeout!")
             logger.error("Slack notification timeout")
             return {
                 "success": False,
                 "error": "Timeout"
             }
         except Exception as e:
+            print(f"❌ Error sending to Slack: {e}")
             logger.error(f"Error sending to Slack: {e}")
             return {
                 "success": False,
