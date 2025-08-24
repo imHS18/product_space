@@ -8,10 +8,11 @@ from tools.risk_assessor import RiskAssessor
 from tools.escalation_router import EscalationRouter
 
 
-def create_alert_agent():
+def create_alert_agent(llm=None):
     """Create the alert decision agent with crisis manager personality"""
 
     return Agent(
+        llm=llm,
         role="Customer Crisis Response Manager & Escalation Specialist",
         goal="Make intelligent escalation decisions that prevent customer churn and optimize team resources",
         backstory="""You are a veteran customer success manager with 15+ years of 

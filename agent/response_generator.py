@@ -8,10 +8,11 @@ from tools.response_creator import ResponseCreator
 from tools.tone_matcher import ToneMatcher
 
 
-def create_response_agent():
+def create_response_agent(llm=None):
     """Create the response generation agent with communication expert personality"""
 
     return Agent(
+        llm=llm,
         role="Customer Communication Psychologist & Response Specialist",
         goal="Generate empathetic, personalized responses that transform negative experiences into positive outcomes",
         backstory="""You are a renowned communication expert with a master's degree 

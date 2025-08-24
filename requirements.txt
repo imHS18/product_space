@@ -1,46 +1,54 @@
-# Core AI Agent Framework
-crewai==0.51.0
-crewai-tools==0.8.3
+# Core Web Framework and ASGI Server
+fastapi
+uvicorn[standard]
+flask
+flask-cors
 
-# LLM and AI Libraries
-openai==1.51.0
-textblob==0.18.0
-vaderSentiment==3.3.2
-langchain==0.1.20
-langchain-openai==0.1.8
+# Database
+sqlalchemy
+databases[sqlite]
+aiosqlite
 
-# Web Framework and APIs
-flask==3.0.0
-flask-cors==4.0.0
-flask-socketio==5.3.6
-requests==2.31.0
+# Data Validation
+pydantic
+pydantic-settings
 
-# Database and Caching
-sqlite3
-redis==5.0.1
-sqlalchemy==2.0.23
+# Sentiment Analysis
+textblob
+vaderSentiment
 
-# Data Processing and Analysis
-pandas==2.1.4
-numpy==1.24.4
-python-dateutil==2.8.2
+# HTTP Client
+requests
+aiohttp
 
-# Environment and Configuration
-python-dotenv==1.0.0
-pyyaml==6.0.1
+# Environment Variables
+python-dotenv
 
-# Testing and Development
-pytest==7.4.3
-pytest-asyncio==0.21.1
-black==23.11.0
-flake8==6.1.0
-mypy==1.7.1
-pre-commit==3.6.0
+# AI Agent Framework
+crewai
+crewai-tools
 
-# Deployment and Monitoring  
-gunicorn==21.2.0
-docker==6.1.3
+# LLM and AI Libraries (moderate usage)
+openai
+langchain
+langchain-openai
 
-# Optional: Advanced AI Tools
-anthropic==0.7.7
-huggingface-hub==0.19.4
+# Data Processing
+pandas
+numpy
+
+# Testing and Development Tools
+pytest
+pytest-asyncio
+black
+flake8
+mypy
+pre-commit
+
+# Optional advanced AI tools
+google-generativeai
+anthropic
+huggingface-hub
+
+# Regex for preprocessing (optional)
+regex

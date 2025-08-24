@@ -8,10 +8,11 @@ from tools.sentiment_analyzer import SentimentAnalyzer
 from tools.confidence_scorer import ConfidenceScorer
 
 
-def create_sentiment_agent():
+def create_sentiment_agent(llm=None):
     """Create the sentiment analysis agent with psychology expert personality"""
 
     return Agent(
+        llm=llm,
         role="Senior Sentiment Analysis Specialist & Psychology Expert",
         goal="Provide highly accurate sentiment analysis with actionable insights about customer emotions",
         backstory="""You hold a PhD in Computational Psychology and have analyzed 

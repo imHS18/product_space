@@ -8,10 +8,11 @@ from tools.database_manager import DatabaseManager
 from tools.task_router import TaskRouter
 
 
-def create_orchestrator_agent():
+def create_orchestrator_agent(llm=None):
     """Create the orchestrator agent with project manager personality"""
 
     return Agent(
+        llm=llm,
         role="Strategic Project Manager & Agent Coordinator",
         goal="Efficiently coordinate all agents to provide optimal customer sentiment analysis and response",
         backstory="""You are a seasoned project manager with 15+ years of experience 

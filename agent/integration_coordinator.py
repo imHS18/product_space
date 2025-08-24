@@ -8,10 +8,11 @@ from tools.slack_notifier import SlackNotifier
 from tools.webhook_handler import WebhookHandler
 
 
-def create_integration_agent():
+def create_integration_agent(llm=None):
     """Create the integration agent with DevOps expert personality"""
 
     return Agent(
+        llm=llm,
         role="Real-time Systems Integration Expert & DevOps Engineer",
         goal="Ensure 99.9% reliable delivery of alerts and updates across all channels with optimal performance",
         backstory="""You are a senior DevOps engineer with 12+ years of experience 
